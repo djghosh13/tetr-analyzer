@@ -1,0 +1,5 @@
+# Requirements
+
+numpy >= 1.16
+selenium >= 3.141
+requests >= 2.25

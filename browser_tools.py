@@ -1,4 +1,6 @@
-# Attempt browser control
+# Browser control through selenium
+# https://www.selenium.dev/
+
 import selenium
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -7,20 +9,36 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import time
 import json
+import sys
 
 class Browser:
-    def __init__(self, *, speedup=2, manual_config=False):
+    def __init__(self, *, speedup=2, manual_config=False, verbose=False):
         self._open = False
         self.driver = None
+        assert speedup in (1, 2, 5, 10)
         self.speedup = speedup
         self.manual_config = manual_config
+        self.verbose = verbose
+
+    def _log(self, *args, **kwargs):
+        if self.verbose:
+            print("[Browser] ", *args, **kwargs)
 
     def init(self):
         if self._open: return
-        self.driver = webdriver.Edge("msedgedriver.exe")
+        self._log("Opening Selenium-driven browser")
+        try:
+            self.driver = webdriver.Edge("msedgedriver.exe")
+        except Exception as e:
+            print(e)
+            print("Make sure you have 'msedgedriver.exe' in the working directory")
+            sys.exit(1)
         self.driver.set_window_size(1100, 700)
         self.driver.get("https://tetr.io/")
         # Login
+        self._log("Logging in")
+        # project-t
+        # xyn123
         self.wait_action("#entry_username", "send_keys", "project-t")
         self.wait_action("#entry_button", "click")
         self.wait_action("#login_password", "send_keys", "xyn123")
@@ -32,8 +50,10 @@ class Browser:
         self.wait_action(".patchnotes .oob_button.pri", "click", timeout=10)
         # Change config settings
         if self.manual_config:
+            self._log("Drag 'config.ttc' into the browser...")
             self.wait_action("#dialogs div.oob_button.sec", "click", timeout=1 * 60)
         else:
+            self._log("Setting correct configuration...")
             for element in [
                     "#sig_config",
                     "h1[title='Change the way TETR.IO sounds']",
@@ -74,6 +94,7 @@ class Browser:
                     raise e
             self.wait_action("#video_graphics_minimal", "click")
         # Refresh and re-login
+        self._log("Refreshing page to confirm settings")
         self.driver.refresh()
         time.sleep(0.25)
         self.wait_action("#return_button", "click")
@@ -81,6 +102,7 @@ class Browser:
 
     def finish(self):
         if self.driver:
+            self._log("Closing browser")
             self.driver.close()
         self._open = False
         self.driver = None
@@ -89,6 +111,7 @@ class Browser:
         self.init()
         self.open_replay(replayid)
         for round, framecount in zip(rounds, framecounts):
+            self._log(f"Recording round {round + 1}")
             self.capture_replay(round, framecount)
             yield self.all_replay_data()
         self.close_replay()
@@ -108,16 +131,19 @@ class Browser:
 
     def open_replay(self, replayid=None):
         if replayid is not None:
+            self._log(f"Opening replay: r:{replayid}")
             self.wait_action("#sig_channel", "click")
             self.wait_action("#tetra_find", "clear")
             self.wait_action("#tetra_find", "send_keys", "r:" + replayid)
             self.wait_action("#tetra_find", "send_keys", "\n")
         else:
+            self._log("Drag your replay file (.ttrm) into the browser...")
             WebDriverWait(self.driver, 2 * 60).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "#multilogview:not(.hidden)"))
             )
 
     def close_replay(self):
+        self._log("Closing replay")
         self.wait_action("#back", "click")
         self.wait_action("#back", "click")
 
@@ -126,7 +152,11 @@ class Browser:
         self.wait_action(f"#replaytools_button_{self.speedup}x", "click")
         self.wait_action("#replaytools_button_playpause", "click")
         time.sleep(5)
-        for filename, tag in [("capture.js", "grid"), ("capturePieces.js", "next"), ("captureHold.js", "hold")]:
+        for filename, tag in [
+                ("scripts/capture_grid.js", "grid"),
+                ("scripts/capture_next.js", "next"),
+                ("scripts/capture_hold.js", "hold")
+            ]:
             for side in [0, 1]:
                 self.run_script(filename, {
                     "[MAX_FRAMES]": framecount,
@@ -161,7 +191,4 @@ class Browser:
             data = data + (sidedata,)
         return data
 
-
-# project-t
-# xyn123
 

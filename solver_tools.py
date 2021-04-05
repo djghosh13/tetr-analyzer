@@ -1,10 +1,21 @@
+# Tools for analysis of game state and actions
+
 import numpy as np
-import matplotlib.pyplot as plt
-from scipy.ndimage import gaussian_filter1d
 from collections import defaultdict
 import sys
 
 GRID_HEIGHT, GRID_WIDTH = 22, 10
+VERBOSE = False
+
+def _log(*args, **kwargs):
+    if VERBOSE:
+        print("[Solver] ", *args, **kwargs)
+
+class SolverConfig:
+    @staticmethod
+    def set_verbose(verbose=True):
+        global VERBOSE
+        VERBOSE = verbose
 
 def to_array(grid):
     return grid.copy() if isinstance(grid, np.ndarray) else np.array([list(row) for row in grid], dtype=np.object)
@@ -65,7 +76,7 @@ def board_only(grid):
 def board_intersection(ga, gb):
     ga, gb = to_array(ga), to_array(gb)
     if garbage_columns(ga) != garbage_columns(gb):
-        print("Warning: Mismatched garbage columns", file=sys.stderr)
+        _log("Warning: Mismatched garbage columns", file=sys.stderr)
     ga[gb == "-"] = "-"
     return ga
 
@@ -182,9 +193,7 @@ class Solver:
                 result["garbage_cleared"] = garbdiff
                 cleared = 4 * nplaced - garbdiff - tilediff
                 if cleared % GRID_WIDTH:
-                    print(f"Warning: Uneven tile count ({prev['end']}-{result['frame']}): {cleared % GRID_WIDTH}", file=sys.stderr)
-                    print(f"Placed {nplaced}, cleared {garbdiff} garbage, tile difference {tilediff}", file=sys.stderr)
-                    # self.log.extend([prev['end'], result['frame']])
+                    _log(f"Warning: Uneven tile count ({prev['end']}-{result['frame']}): {cleared % GRID_WIDTH}", file=sys.stderr)
                 cleared = int(np.ceil(cleared / GRID_WIDTH))
                 # Figure out which lines were cleared
                 curr, target = board_only(prev["grid"]), board_only(result["grid"])
@@ -197,8 +206,7 @@ class Solver:
                     else:
                         result["lines"].append(row)
                 if len(result["lines"]) != cleared:
-                    print(f"Expected {cleared} lines, found {result['lines']}", file=sys.stderr)
-                    # self.log.extend([prev['end'], result['frame']])
+                    _log(f"Expected {cleared} lines, found {result['lines']}", file=sys.stderr)
             prev = result
             yield result
 
@@ -297,6 +305,7 @@ class Solver:
             yield result
 
     def find_interesting_parts(self, framelist):
+        # TODO: Work in progress
         goodframes = set()
         for i in range(7, len(framelist)):
             if framelist[i]["attack_combo"] >= 10 and framelist[i]["combo"] > 1:
@@ -307,7 +316,7 @@ class Solver:
 
 
 
-class SolverTools:
+class SolverStats:
     @staticmethod
     def compute_placement_stats(framelist, out):
         for f in framelist:
