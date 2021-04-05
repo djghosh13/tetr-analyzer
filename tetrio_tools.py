@@ -3,6 +3,7 @@ import requests
 import pickle
 import json
 import sys
+import os
 from browser_tools import Browser
 
 
@@ -70,7 +71,7 @@ def get_random_game(browser: Browser, rng, **kwargs):
     opponent = [name for name in players if name != player['username']][0]
     print(f"\tversus opponent: '{opponent}'")
     replayid = get_replayid(game)
-    return full_game(browser, replayid, **kwargs)
+    return get_full_game(browser, replayid, **kwargs)
 
 
 def get_full_game(browser: Browser, replayid: AnyStr, maxrounds=15, use_cache=True):
@@ -84,6 +85,7 @@ def get_full_game(browser: Browser, replayid: AnyStr, maxrounds=15, use_cache=Tr
     replays = download_replay(replayid)
     framecounts = [n_frames(replays, idx) - 10 for idx in range(n_games(replays))]
     data = list(browser.get(replayid, range(min(n_games(replays), maxrounds)), framecounts))
+    os.makedirs("cache", exist_ok=True)
     with open(f"cache/replay_{replayid}.pkl", "wb") as f:
         pickle.dump(data, f)
         print("Saved replay to cache")
@@ -102,6 +104,7 @@ def get_custom_game(browser: Browser, filename: AnyStr, maxrounds=15, use_cache=
     replays = upload_replay(filename)
     framecounts = [n_frames(replays, idx) - 10 for idx in range(n_games(replays))]
     data = list(browser.get(None, range(min(n_games(replays), maxrounds)), framecounts))
+    os.makedirs("cache", exist_ok=True)
     with open(f"cache/replay_{sname}.pkl", "wb") as f:
         pickle.dump(data, f)
         print("Saved replay to cache")

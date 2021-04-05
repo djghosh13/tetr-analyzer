@@ -11,7 +11,7 @@ from solver_tools import Solver, SolverStats, SolverConfig
 # Arguments
 parser = argparse.ArgumentParser()
 parser.add_argument("--no-cache", "-C", action="store_true", help="disable loading replays from cache")
-parser.add_argument("--seed", "-S", default=0, type=int, help="random seed for randomly chosen games")
+parser.add_argument("--seed", "-S", default=None, type=int, help="random seed for randomly chosen games")
 parser.add_argument("--manual", "-m", action="store_true", help="manually drag config file into Tetr.IO (faster)")
 parser.add_argument("--speedup", "-s", default=2, type=int, help="speedup when recording replays")
 parser.add_argument("--verbose", "-v", action="store_true", help="display all debugging information")
