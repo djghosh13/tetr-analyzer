@@ -113,6 +113,23 @@ function capture() {
 for (let element of document.querySelectorAll("#captured-" + tag)) {
     element.remove();
 }
+for (let element of document.querySelectorAll("#custom-style")) {
+    element.remove();
+}
+{
+    let element = document.createElement("style");
+    element.setAttribute("id", "custom-style");
+    element.setAttribute("type", "text/css");
+    element.innerText = `
+        .watch_header .keystone {
+            background-color: #266dcd !important;
+        }
+        .watch_header .data>span {
+            color: #266dcd !important;
+        }
+    `;
+    document.body.appendChild(element);
+}
 var captureID = requestAnimationFrame(capture);
 
 return captureID;

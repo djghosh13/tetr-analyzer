@@ -10,6 +10,7 @@ from selenium.webdriver.support import expected_conditions as EC
 import time
 import json
 import sys
+import os
 
 class Browser:
     def __init__(self, *, speedup=2, manual_config=False, verbose=False):
@@ -28,10 +29,13 @@ class Browser:
         if self._open: return
         self._log("Opening Selenium-driven browser")
         try:
-            self.driver = webdriver.Edge("msedgedriver.exe")
+            if os.path.exists("msedgedriver.exe"):
+                self.driver = webdriver.Edge("msedgedriver.exe")
+            else:
+                self.driver = webdriver.Chrome("chromedriver.exe")
         except Exception as e:
             print(e)
-            print("Make sure you have 'msedgedriver.exe' in the working directory")
+            print("Make sure you have a webdriver in the working directory")
             sys.exit(1)
         self.driver.set_window_size(1100, 700)
         self.driver.get("https://tetr.io/")
@@ -43,6 +47,11 @@ class Browser:
         self.wait_action("#entry_button", "click")
         self.wait_action("#login_password", "send_keys", "xyn123")
         self.wait_action("#login_button", "click")
+        # Run resize script
+        padding = self.driver.execute_script(
+            "return [window.outerWidth-window.innerWidth, window.outerHeight-window.innerHeight];"
+        )
+        self.driver.set_window_size(1084 + padding[0], 570 + padding[1])
         time.sleep(2)
         # Close notifications if they are up
         for _ in range(2):

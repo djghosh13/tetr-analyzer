@@ -8,6 +8,8 @@ tetr-analyzer uses Selenium, a browser automation software. All required package
 
 In addition, Selenium requires a webdriver to run. Currently, tetr-analyzer only supports Microsoft Edge. You can find a version of the webdriver on the [Microsoft Edge Developer](https://developer.microsoft.com/en-us/microsoft-edge/tools/webdriver/#downloads) website that matches your version of Edge. Tetr-analyzer has not been tested on any version other than 89.0.774.68 (64-bit). Place the webdriver, named `msedgedriver.exe`, in the base directory.
 
+Limited testing has also been done on Google Chrome, which similarly requires a Chrome webdriver, which can be found at the [Chromium](https://chromedriver.chromium.org/downloads) website. If no Edge webdriver is found, the script will search for `chromedriver.exe` in the base directory.
+
 # Usage
 
 Run
