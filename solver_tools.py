@@ -114,6 +114,24 @@ def pieces_placed(frameA, frameB):
         raise RuntimeError("Too many frames were dropped")
     return 5 - len(na) - (ha == "-" and hb != "-")
 
+def which_pieces(frameA, frameB):
+    try:
+        na, ha = frameA["next"], frameA["hold"]
+        nb, hb = frameB["next"], frameB["hold"]
+        pieces = []
+        if ha != "-":
+            pieces.append(ha)
+        while not nb.startswith(na):
+            pieces.append(na[0])
+            na = na[1:]
+        if hb != "-":
+            pieces.remove(hb)
+    except Exception:
+        print(frameA["next"], frameA["hold"])
+        print(frameB["next"], frameB["hold"])
+        sys.exit(1)
+    return pieces
+
 def to_filter(fshape):
     rotate = lambda x: x[::-1].T
     fltr = to_array(fshape) == "*"
@@ -187,6 +205,7 @@ class Solver:
             result["lines"] = []
             if prev is not None:
                 nplaced = pieces_placed(prev, result)
+                assert len(which_pieces(prev, result)) == nplaced
                 tilediff = board_change(prev["grid"], result["grid"])
                 garbdiff = len(garbage_change(prev["grid"], result["grid"])[0])
                 result["nplaced"] = nplaced
@@ -194,6 +213,7 @@ class Solver:
                 cleared = 4 * nplaced - garbdiff - tilediff
                 if cleared % GRID_WIDTH:
                     _log(f"Warning: Uneven tile count ({prev['end']}-{result['frame']}): {cleared % GRID_WIDTH}", file=sys.stderr)
+                    # print("\n".join("".join(row) for row in result["grid"]))
                 cleared = int(np.ceil(cleared / GRID_WIDTH))
                 # Figure out which lines were cleared
                 curr, target = board_only(prev["grid"]), board_only(result["grid"])

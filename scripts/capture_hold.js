@@ -2,51 +2,54 @@ var maxFrames = parseInt("[MAX_FRAMES]");
 var side = parseInt("[PLAYER_SIDE]");
 var tag = "[DATA_TAG]";
 
-const frameOffsetX = [143, 430][side], frameOffsetY = 318;
-const frameWidth = 2, frameHeight = 1;
+const frameOffsetX = [110, 397][side], frameOffsetY = 300;
+const frameWidth = 68, frameHeight = 41;
 
 var imageData = new Uint8Array(4 * frameWidth * frameHeight);
 var captureFrames = [];
 
-const pieceColors = {
-    "S": [152, 196, 78],
-    "Z": [199, 78, 85],
-    "T": [181, 89, 171],
-    "I": [76, 199, 153],
-    "L": [197, 123, 78],
-    "J": [105, 89, 181],
-    "O": [206, 182, 84],
-    "used": [50, 50, 50],
-    "-": [0, 0, 0]
-};
 
-function nearestNeighbor(color) {
-    let bestPiece = null, minDist = 1e6;
-    for (const [piece, pColor] of Object.entries(pieceColors)) {
-        let dist = Math.abs(color[0] - pColor[0]) + Math.abs(color[1] - pColor[1]) + Math.abs(color[2] - pColor[2]);
-        if (dist < minDist) {
-            bestPiece = piece, minDist = dist;
-        }
-    }
-    return bestPiece;
+const keyCoords = [
+    8 + 19 * frameWidth,
+    16 + 12 * frameWidth,
+    33 + 12 * frameWidth,
+    51 + 12 * frameWidth,
+    16 + 26 * frameWidth,
+    33 + 26 * frameWidth,
+    51 + 26 * frameWidth
+];
+
+function notBlack(illum) {
+    return (illum > 10) + 0;
 }
 
 function readPiece(imageData, width, height) {
-    // Determine average color
-    let color = [0, 0, 0];
-    let pixels = width * height;
-    for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-            let idx = (y * width + x) * 4;
-            color[0] += imageData[idx + 0];
-            color[1] += imageData[idx + 1];
-            color[2] += imageData[idx + 2];
-        }
+    var key = 0;
+    for (let idx of keyCoords) {
+        // Determine illumination
+        let illum = imageData[idx * 4 + 0] + imageData[idx * 4 + 1] + imageData[idx * 4 + 2];
+        key = (key << 1) | notBlack(illum);
     }
-    color[0] /= pixels;
-    color[1] /= pixels;
-    color[2] /= pixels;
-    return nearestNeighbor(color);
+    switch (key) {
+        case 0:
+            return "-";
+        case 0b0010010:
+            return "O";
+        case 0b0011110:
+            return "Z";
+        case 0b0110011:
+            return "S";
+        case 0b0111001:
+            return "L";
+        case 0b0111010:
+            return "T";
+        case 0b0111100:
+            return "J";
+        case 0b1111000:
+            return "I";
+        default:
+            return "unk";
+    }
 }
 
 function capture() {

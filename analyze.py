@@ -5,6 +5,7 @@ import argparse
 from browser_tools import Browser
 from tetrio_tools import get_full_game, get_random_game, get_custom_game, get_playername
 from solver_tools import Solver, SolverStats, SolverConfig
+from new_solver import PieceSolver, BoardSolver
 # import render_tools
 
 
@@ -84,6 +85,12 @@ def main(args):
             filtered = list(frame for frame in zipd(rounddata) if frame["next"]["value"] != "-----")
             assert all(f["grid"]["frame"] == f["next"]["frame"] == f["hold"]["frame"] for f in filtered)
             # Analyze
+            print("Next")
+            ps, bs = PieceSolver(), BoardSolver()
+            nfs = list(map(todict, filtered))
+            nfs = ps.compute(nfs)
+            nfs = bs.compute(nfs)
+            continue
             slvr = Solver()
             newfs = list(slvr.calc_events(map(todict, filtered)))
             # slvr.find_interesting_parts(newfs)
@@ -98,6 +105,7 @@ def main(args):
             stats["Max Spike"] = max(stats["Max Spike"], max(f["attack_combo"] for f in newfs[1:]))
             for k in metrics:
                 stats[k] += sum(map(metrics[k], newfs[1:]))
+        raise KeyboardInterrupt()
         stats["Time"] = stats["_frames"] / 60
         stats["PPS"] = stats["Pieces"] * 60 / stats["_frames"]
         stats["APM"] = stats["Attack"] * 60 * 60 / stats["_frames"]

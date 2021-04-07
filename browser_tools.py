@@ -27,7 +27,7 @@ class Browser:
 
     def init(self):
         if self._open: return
-        self._log("Opening Selenium-driven browser")
+        self._log("Opening browser")
         try:
             if os.path.exists("msedgedriver.exe"):
                 self.driver = webdriver.Edge("msedgedriver.exe")
