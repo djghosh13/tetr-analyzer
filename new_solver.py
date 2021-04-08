@@ -23,8 +23,13 @@ class SolverConfig:
 class PieceSolver:
     def __init__(self):
         self.piecelist = ""
+        self._solved = False
+
+    def solved(self):
+        return self._solved
 
     def _all_pieces(self, framelist):
+        # Requires all frames
         pieces = ""
         for frame in framelist:
             nextps = frame["next"]
@@ -38,12 +43,14 @@ class PieceSolver:
         return pieces
 
     def _count_pieces(self, framelist):
+        # Requires: none
         idx = 0
         for frame in framelist:
             idx += self.piecelist[idx:].index(frame["next"])
             frame["PSolver"]["index"] = idx - 1
 
     def _num_placed(self, framelist):
+        # Requires: none
         pidx, phold = None, None
         for frame in framelist:
             idx, hold = frame["PSolver"]["index"], frame["hold"]
@@ -52,11 +59,12 @@ class PieceSolver:
                 frame["PSolver"]["count"] = idx - pidx
                 if phold == "-" and hold != "-":
                     frame["PSolver"]["count"] -= 1
-                if frame["PSolver"]["count"] > 1:
+                if frame["PSolver"]["count"] > 2:
                     print("Uh oh")
             pidx, phold = idx, hold
 
     def _current_piece(self, framelist):
+        # Requires: confirmation from board
         pidx, phold = None, None
         possible = []
         for frame in framelist:
@@ -202,21 +210,20 @@ class BoardSolver:
         return (np.all(boardA[boardA != "-"] == boardB[boardA != "-"]) and
             np.all(boardA[boardB == "-"] == "-"))
     
-    def _similarity(self, boardA, boardB):
+    def _dissimilarity(self, boardA, boardB):
         garbdiff = np.sum(boardB == "G") - np.sum(boardA == "G")
         if garbdiff < 0 or garbdiff % (GRID_WIDTH - 1):
-            return -np.inf
+            return np.inf
         garbdiff //= GRID_WIDTH - 1
         boardA, boardB = boardA[:len(boardA) - garbdiff], boardB[garbdiff:]
         if (np.all(boardA[boardA != "-"] == boardB[boardA != "-"]) and
             np.all(boardA[boardB == "-"] == "-")):
             return (boardA != boardB).sum()
-        retun -np.inf
+        return np.inf
 
     def _match_height(self, boardA, boardB):
         garbdiff = (np.sum(boardB == "G") - np.sum(boardA == "G")) // 9
-        boardA, boardB = boardA[:len(boardA) - garbdiff], boardB[garbdiff:]
-        return to_array((list(boardB[:garbdiff]) + list(boardA))[:len(boardA)])
+        return to_array((list(boardB[:garbdiff]) + list(boardA))[:GRID_HEIGHT])
 
     def _track_board(self, framelist):
         board = np.empty([GRID_HEIGHT, GRID_WIDTH], dtype=np.object)
@@ -235,13 +242,15 @@ class BoardSolver:
                     # Piece placed, check lines cleared
                     changed = False
                     piece = frame["PSolver"]["which"][0]
-                    for newboard in self._grid_states(board, piece):
-                        if self._almost_equal(newboard, frame["BSolver"]["board"]):
-                            print(f'Placed {piece}')
-                            board = self._match_height(newboard, frame["BSolver"]["board"])
-                            pprint_board(board)
-                            changed = True
-                            break
+                    newboard = min(
+                        self._grid_states(board, piece),
+                        key=lambda b: self._dissimilarity(b, frame["BSolver"]["board"])
+                    )
+                    if np.isfinite(self._dissimilarity(newboard, frame["BSolver"]["board"])):
+                        print(f'Placed {piece}')
+                        board = self._match_height(newboard, frame["BSolver"]["board"])
+                        # pprint_board(board)
+                        changed = True
                     if not changed:
                         print(f'Frame {frame["frame"]}: Could not locate piece: {piece}')
                         pprint_board(board)
