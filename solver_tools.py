@@ -1,7 +1,7 @@
 # Tools for analysis of game state and actions
 
 import numpy as np
-from collections import defaultdict
+from collections import defaultdict, namedtuple
 from itertools import permutations
 import sys
 
@@ -56,6 +56,10 @@ def erase_garbage(grid):
     newgrid[...] = "-"
     newgrid[::-1][:len(board)][::-1] = board
     return newgrid
+
+def apply_garbage(board, columns):
+    garbage = [["-" if i == int(col) else "G" for i in range(GRID_WIDTH)] for col in columns]
+    return to_array(list(board[len(columns):]) + garbage[::-1])
 
 # Board analysis
 
@@ -117,6 +121,9 @@ def board_equals(gridA, gridB):
 
 # Piece analysis
 
+Action = namedtuple("Action", ["piece", "x", "y", "rotation"])
+Garbage = namedtuple("Garbage", ["columns"])
+
 def action_taken(frameA, frameB):
     return frameA["hold"] != frameB["hold"] or frameA["next"] != frameB["next"]
 
@@ -166,7 +173,7 @@ def apply_placement(board, piece, x, y, rotation):
 
 def all_placements(board, pieces):
     if not pieces:
-        yield board
+        yield (), board
     else:
         piece, *rest = pieces
         filled = (board != "-")
@@ -180,7 +187,8 @@ def all_placements(board, pieces):
                     if filled[y:y + Hf, x:x + Wf][ftr].any(): continue
                     if y < GRID_HEIGHT - Hf and not filled[y + 1:y + Hf + 1, x:x + Wf][ftr].any(): continue
                     newboard = apply_placement(board, piece, x, y, rot)
-                    yield from all_placements(newboard, rest)
+                    for actions, result in all_placements(newboard, rest):
+                        yield (Action(piece, x, y, rot),) + actions, result
 
 
 def filter_pass(grid, filters):
@@ -194,6 +202,11 @@ def filter_pass(grid, filters):
             strides=X.strides + X.strides
         )
         yield np.all(Xconv[:, :, f], axis=-1)
+
+
+def pprint_board(board):
+    print("\n".join("".join(row) for row in board))
+    print()
 
 # TODO: Solution
 
@@ -236,7 +249,8 @@ class Solver:
         for frame in frameiter:
             if prev:
                 frame["S"]["n_placed"] = pieces_placed(prev, frame)
-                gclear, _ = garbage_change(prev["S"]["board"], frame["S"]["board"])
+                gclear, gadd = garbage_change(prev["S"]["board"], frame["S"]["board"])
+                frame["S"]["garbage"] = gadd
                 # Change in tiles offset by placements and garbage lines
                 balance += 4 * frame["S"]["n_placed"]
                 balance -= board_tiles(frame["S"]["board"]) - board_tiles(prev["S"]["board"])
@@ -244,6 +258,7 @@ class Solver:
                 balance %= GRID_WIDTH
             else:
                 frame["S"]["n_placed"] = 0
+                frame["S"]["garbage"] = 0
             frame["S"]["balance"] = balance
             frame["S"]["keyframe"] = (balance == 0)
             prev = frame
@@ -286,10 +301,9 @@ class Solver:
         cpiece = piecelist[0]
         # First set (initial frame)
         first = next(frameiter)
-        first["S"]["placed"] = []
+        first["S"]["placed"], first["S"]["actions"] = (), ()
         yield first
         for start, frames in frameiter:
-            # TODO: Big boy computation
             target = frames[-1]
             # Compute candidate pieces
             cands = [cpiece, start["hold"]]
@@ -303,37 +317,64 @@ class Solver:
             success = False
             for possibility in permutations(cands):
                 *placed, leftover = possibility
-                for result in all_placements(start["S"]["board"], placed):
+                for actions, result in all_placements(start["S"]["board"], placed):
                     if board_equals(result, target["S"]["board"]):
                         success = True # SUCCESS!!!
                         for f in frames:
-                            f["S"]["placed"] = list(placed[:f["S"]["n_placed"]])
+                            f["S"]["placed"] = tuple(placed[:f["S"]["n_placed"]])
+                            f["S"]["actions"] = actions[:f["S"]["n_placed"]]
                             placed = placed[f["S"]["n_placed"]:]
+                            actions = actions[f["S"]["n_placed"]:]
                         assert not placed
                         break
                 if success:
                     cpiece = leftover
                     break
             if not success:
-                print("Failed")
+                _log("Could not work out piece placements")
+                _log(f"Placed {n_placed} pieces out of {tuple(cands)}")
+                _log("Start")
+                pprint_board(start["S"]["board"])
+                _log("Target")
+                pprint_board(target["S"]["board"])
                 raise Exception()
             yield from frames
         
-    def compute(self, frameiter, piecelist):
+    def reconstruct(self, frameiter, piecelist):
         for fn in (self.combine_frames, self.clean_frames, self.mark_good_frames,
                    self.piece_index, self.groupby_keyframe):
             frameiter = fn(frameiter)
         frameiter = self.pieces_placed(frameiter, piecelist)
-        # Other
+        # Reconstruct events
+        last = 0
+        board = to_array(["-" * GRID_WIDTH] * GRID_HEIGHT)
         for frame in frameiter:
-            pass #print("".join(frame["S"]["placed"]))
-        print("Success")
+            n = frame["S"]["n_placed"]
+            step = (frame["frame"] - last) / (n + 1)
+            for i, action in enumerate(frame["S"]["actions"]):
+                yield {
+                    "frame": int(np.ceil(last + step * (i + 1))),
+                    "type": "drop",
+                    "event": action,
+                    "board": board
+                }
+                board = apply_placement(board, action.piece, action.x, action.y, action.rotation)
+            if frame["S"]["garbage"]:
+                yield {
+                    "frame": frame["frame"],
+                    "type": "garbage",
+                    "event": Garbage(frame["S"]["garbage"]),
+                    "board": board
+                }
+                board = apply_garbage(board, frame["S"]["garbage"])
+            last = frame["end"]
+
+    # Old stuff
 
     def calc_line_clears(self, frameiter):
         prev = None
-        for f in self.clean_frames(self.combine_frames(frameiter)):
-            result = f.copy()
-            result["lines"] = []
+        for frame in frameiter:
+            frame["lines"] = []
             if prev is not None:
                 nplaced = pieces_placed(prev, result)
                 tilediff = board_change(prev["grid"], result["grid"])

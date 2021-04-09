@@ -87,7 +87,9 @@ def main(args):
             # Analyze
             slvr = Solver()
             piecelist = slvr.compute_piece_list(list(map(todict, filtered)))
-            slvr.compute(map(todict, filtered), piecelist)
+            for event in slvr.reconstruct(map(todict, filtered), piecelist):
+                print(f'Frame {event["frame"]}:\t{event["event"]}')
+            raise Exception()
             continue
             #
             newfs = list(slvr.calc_events(map(todict, filtered)))
