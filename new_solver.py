@@ -65,23 +65,23 @@ class PieceSolver:
 
     def _current_piece(self, framelist):
         # Requires: confirmation from board
-        pidx, phold = None, None
-        possible = []
+        pidx, phold, pcurr = None, None, None
         for frame in framelist:
             idx, hold = frame["PSolver"]["index"], frame["hold"]
             if pidx is not None:
-                if hold != phold:
-                    if phold != "-":
-                        possible.append(phold)
-                possible += self.piecelist[pidx + 1:idx + 1]
-                if hold != phold:
-                    possible.remove(hold)
-                possible = possible[frame["PSolver"]["count"]:]
+                if frame["PSolver"]["count"] == 0:
+                    # Placed no pieces (0, H)
+                    if hold != phold:
+                        curr = phold if phold != "-" else self.piecelist[pidx]
+                    else:
+                        curr = pcurr
+                elif frame["PSolver"]["count"] == 1:
+                    # Placed one piece (D, DH, HD, HDH)
+                    pass
             else:
-                possible += self.piecelist[0]
-            assert len(possible) == 1
-            frame["PSolver"]["current"] = possible[0]
-            pidx, phold = idx, hold
+                curr = self.piecelist[0]
+            frame["PSolver"]["current"] = curr
+            pidx, phold, pcurr = idx, hold, curr
 
     def _which_pieces(self, framelist):
         pidx, pcurr, phold = None, None, None

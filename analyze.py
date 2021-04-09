@@ -85,13 +85,11 @@ def main(args):
             filtered = list(frame for frame in zipd(rounddata) if frame["next"]["value"] != "-----")
             assert all(f["grid"]["frame"] == f["next"]["frame"] == f["hold"]["frame"] for f in filtered)
             # Analyze
-            print("Next")
-            ps, bs = PieceSolver(), BoardSolver()
-            nfs = list(map(todict, filtered))
-            nfs = ps.compute(nfs)
-            nfs = bs.compute(nfs)
-            continue
             slvr = Solver()
+            piecelist = slvr.compute_piece_list(list(map(todict, filtered)))
+            slvr.compute(map(todict, filtered), piecelist)
+            continue
+            #
             newfs = list(slvr.calc_events(map(todict, filtered)))
             # slvr.find_interesting_parts(newfs)
             SolverStats.tspin_overhangs(newfs, out=overhangs)
@@ -105,7 +103,7 @@ def main(args):
             stats["Max Spike"] = max(stats["Max Spike"], max(f["attack_combo"] for f in newfs[1:]))
             for k in metrics:
                 stats[k] += sum(map(metrics[k], newfs[1:]))
-        raise KeyboardInterrupt()
+        continue
         stats["Time"] = stats["_frames"] / 60
         stats["PPS"] = stats["Pieces"] * 60 / stats["_frames"]
         stats["APM"] = stats["Attack"] * 60 * 60 / stats["_frames"]
