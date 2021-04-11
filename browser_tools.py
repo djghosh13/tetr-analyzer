@@ -130,55 +130,17 @@ class Browser:
                 except Exception:
                     pass
         return success
+    
     def drag_and_drop_file(self, drop_target, path):
         path = os.path.abspath(path)
         driver = drop_target.parent
         file_input = driver.execute_script(JS_DROP_FILE, drop_target, 0, 0)
         file_input.send_keys(path)
+    
     def set_config(self):
         target = self.driver.find_element_by_id("victoryview")
         self.drag_and_drop_file(target, "config.ttc")
         self.wait_action("#dialogs > div > div > div.oob_button.flex-item.sec", "click")
-        return
-        for element in [
-                "#sig_config",
-                "h1[title='Change the way TETR.IO sounds']",
-                "#volume_disable",
-                "h1[title='Change the way TETR.IO functions']",
-                "#video_actiontext_off",
-                "#video_spin",
-                "#video_spikes",
-                "#video_kos",
-                "#video_fire",
-                "#video_siren",
-                "h1[title='Change the way TETR.IO looks']"
-            ]:
-            self.wait_action(element, "click")
-        for element, value in [
-                ("#video_bounciness_field", 0),
-                ("#video_shakiness_field", 0),
-                ("#video_gridopacity_field", 0),
-                ("#video_boardopacity_field", 1),
-                ("#video_shadowopacity_field", 0),
-                ("#video_background_field", 0),
-                ("#video_particles_field", 0.1),
-                ("#video_pieceflash_field", 0)
-            ]:
-            try:
-                self.wait_action(element, "click")
-                time.sleep(0.05)
-                self.driver.execute_script(
-                    "arguments[0].setAttribute('value', arguments[1])",
-                    self.driver.find_element_by_id("request_number"),
-                    str(value)
-                )
-                time.sleep(0.05)
-                self.wait_action("#request_number_submit", "click")
-                time.sleep(0.05)
-            except Exception as e:
-                print(f"Errored on {element}")
-                raise e
-        self.wait_action("#video_graphics_minimal", "click")
 
     def open_replay(self, replayid=None):
         self.wait_action("#sig_channel", "click")
