@@ -103,7 +103,7 @@ def get_custom_game(browser: Browser, filename: AnyStr, maxrounds=15, use_cache=
             print("Replay not cached, capturing replay")
     replays = upload_replay(filename)
     framecounts = [n_frames(replays, idx) - 10 for idx in range(n_games(replays))]
-    data = list(browser.get(None, range(min(n_games(replays), maxrounds)), framecounts))
+    data = list(browser.get(filename, range(min(n_games(replays), maxrounds)), framecounts))
     os.makedirs("cache", exist_ok=True)
     with open(f"cache/replay_{sname}.pkl", "wb") as f:
         pickle.dump(data, f)
