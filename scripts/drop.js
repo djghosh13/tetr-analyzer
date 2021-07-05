@@ -1,30 +1,25 @@
-// Drop file script
-let target = arguments[0];
-let document = target.ownerDocument || document;
-let window = document.defaultView || window;
+var target = arguments[0],
+    offsetX = arguments[1],
+    offsetY = arguments[2],
+    document = target.ownerDocument || document,
+    window = document.defaultView || window;
 
-let input = document.createElement("input");
-input.type = "file";
-// input.addEventListener("change", function () {
-//     let rect = target.getBoundingClientRect();
-//     let x = rect.left + (rect.width >> 1);
-//     let y = rect.top + (rect.height >> 1);
-//     // Create data transfer
-//     let dataTransfer = new DataTransfer();
-//     dataTransfer.dropEffect = "copy";
-//     dataTransfer.items.add(this.files[0]);
+var input = document.createElement('input');
+input.type = 'file';
+input.onchange = function () {
+    var rect = target.getBoundingClientRect(),
+        x = rect.left + (offsetX || (rect.width >> 1)),
+        y = rect.top + (offsetY || (rect.height >> 1)),
+        dataTransfer = { files: this.files };
 
-//     ["dragenter", "dragover", "drop"].forEach(name => {
-//         let event = new DragEvent(name, {
-//             "bubbles": true,
-//             "dataTransfer": dataTransfer
-//         });
-//         target.dispatchEvent(event);
-//         console.log(event);
-//     });
+    ['dragenter', 'dragover', 'drop'].forEach(function (name) {
+        var evt = document.createEvent('MouseEvent');
+        evt.initMouseEvent(name, !0, !0, window, 0, 0, 0, x, y, !1, !1, !1, !1, 0, null);
+        evt.dataTransfer = dataTransfer;
+        target.dispatchEvent(evt);
+    });
 
-//     setTimeout(() => document.body.removeChild(input), 25);
-// });
-
+    setTimeout(function () { document.body.removeChild(input); }, 25);
+};
 document.body.appendChild(input);
 return input;

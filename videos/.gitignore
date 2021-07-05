@@ -1,0 +1,4 @@
+# Saved videos folder, ignore all video files
+*
+
+!.gitignore

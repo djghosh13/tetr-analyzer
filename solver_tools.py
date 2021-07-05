@@ -2,11 +2,13 @@
 
 import numpy as np
 from collections import defaultdict, namedtuple
-from itertools import permutations
+from itertools import combinations
 import sys
+
 
 GRID_HEIGHT, GRID_WIDTH = 22, 10
 VERBOSE = False
+IGNORE_ERRORS = False
 
 def _log(*args, **kwargs):
     if VERBOSE:
@@ -17,6 +19,13 @@ class SolverConfig:
     def set_verbose(verbose=True):
         global VERBOSE
         VERBOSE = verbose
+        return SolverConfig
+
+    @staticmethod
+    def set_force(force=True):
+        global IGNORE_ERRORS
+        IGNORE_ERRORS = force
+        return SolverConfig
 
 def to_array(grid):
     return grid.copy() if isinstance(grid, np.ndarray) else np.array([list(row) for row in grid], dtype=np.object)
@@ -65,6 +74,10 @@ def apply_garbage(board, columns):
 
 def board_clean(grid):
     grid = to_array(grid)
+    # Delete pieces in garbage
+    gbrows = grid[::-1][:garbage_height(grid)]
+    gbrows[gbrows != "G"] = "-"
+    # Delete floating rows
     board = grid[::-1][garbage_height(grid):]
     erase = False
     for row in board:
@@ -72,6 +85,8 @@ def board_clean(grid):
             row[...] = "-"
         elif np.all(row == "-"):
             erase = True
+    # Special case, might help?
+    grid[:1, 3:7] = "-"
     return grid
 
 def board_tiles(grid):
@@ -87,14 +102,6 @@ def board_intersection(ga, gb):
         _log("Warning: Mismatched garbage columns", file=sys.stderr)
     ga[gb == "-"] = "-"
     return ga
-
-def board_difference(ga, gb):
-    ga, gb = to_array(ga), to_array(gb)
-    diff = np.empty_like(ga, dtype=np.object)
-    diff[...] = None
-    neq = np.not_equal(ga, gb)
-    diff[neq] = gb[neq]
-    return diff
 
 def board_change(gridA, gridB):
     gridA, gridB = to_array(gridA), to_array(gridB)
@@ -118,6 +125,14 @@ def board_equals(gridA, gridB):
     garbdiff //= GRID_WIDTH - 1
     boardA, boardB = gridA[garbdiff:], gridB[:len(gridB) - garbdiff]
     return np.all(boardA == boardB)
+
+def board_difference(gridA, gridB):
+    garbdiff = np.sum(gridB == "G") - np.sum(gridA == "G")
+    if garbdiff < 0 or garbdiff % (GRID_WIDTH - 1):
+        return np.inf
+    garbdiff //= GRID_WIDTH - 1
+    boardA, boardB = gridA[garbdiff:], gridB[:len(gridB) - garbdiff]
+    return np.sum(boardA != boardB)
 
 # Piece analysis
 
@@ -146,7 +161,7 @@ def to_filter(fshape):
         rotate(rotate(rotate(fltr)))
     ]
 
-_piece_filters = {
+piece_filters = {
     "S": to_filter([" **", "** "]),
     "Z": to_filter(["** ", " **"]),
     "T": to_filter([" * ", "***"]),
@@ -158,20 +173,37 @@ _piece_filters = {
 
 # Placement
 
-def apply_placement(board, piece, x, y, rotation):
-        newb = to_array(board)
-        ftr = _piece_filters[piece][rotation]
-        Hf, Wf = ftr.shape
-        newb[y:y + Hf, x:x + Wf][ftr] = piece
-        # Check for line clears
-        cleared = np.nonzero((newb != "-").all(axis=-1))[0]
-        newb = to_array(
-            ["-" * GRID_WIDTH] * len(cleared) +
-            [row for i, row in enumerate(newb) if i not in cleared]
-        )
-        return newb
+def all_orderings(n, queue, h_initial, h_final):
+    for nholds in range(n + 2):
+        for ishold in combinations(range(n + 1), nholds):
+            q, h = tuple(queue), h_initial
+            ordering = []
+            for idx in range(n + 1):
+                if idx in ishold:
+                    if h == "-":
+                        h, q = q[0], q[1:]
+                    else:
+                        h, q = q[0], (h,) + q[1:]
+                ordering.append(q[0])
+                q = q[1:]
+            if h == h_final:
+                yield ordering
 
-def all_placements(board, pieces):
+def apply_placement(board, piece, x, y, rotation):
+    newb = to_array(board)
+    ftr = piece_filters[piece][rotation]
+    Hf, Wf = ftr.shape
+    assert np.all(newb[y:y + Hf, x:x + Wf][ftr] == "-")
+    newb[y:y + Hf, x:x + Wf][ftr] = piece
+    # Check for line clears
+    cleared = np.nonzero((newb != "-").all(axis=-1))[0]
+    newb = to_array(
+        ["-" * GRID_WIDTH] * len(cleared) +
+        [row for i, row in enumerate(newb) if i not in cleared]
+    )
+    return newb
+
+def all_placements(board, pieces, states):
     if not pieces:
         yield (), board
     else:
@@ -179,7 +211,7 @@ def all_placements(board, pieces):
         filled = (board != "-")
         rotations = [4, 2, 2, 2, 1, 4, 4]["TSZIOLJ".index(piece)]
         for rot in range(rotations):
-            ftr = _piece_filters[piece][rot]
+            ftr = piece_filters[piece][rot]
             Hf, Wf = ftr.shape
             for y in range(GRID_HEIGHT - Hf, -1, -1):
                 for x in range(GRID_WIDTH - Wf + 1):
@@ -187,21 +219,12 @@ def all_placements(board, pieces):
                     if filled[y:y + Hf, x:x + Wf][ftr].any(): continue
                     if y < GRID_HEIGHT - Hf and not filled[y + 1:y + Hf + 1, x:x + Wf][ftr].any(): continue
                     newboard = apply_placement(board, piece, x, y, rot)
-                    for actions, result in all_placements(newboard, rest):
+                    # Compare to heuristic if exists
+                    if states and states[0] is not None:
+                        if board_difference(newboard, states[0]) > 4:
+                            continue
+                    for actions, result in all_placements(newboard, rest, states=states[1:]):
                         yield (Action(piece, x, y, rot),) + actions, result
-
-
-def filter_pass(grid, filters):
-    grid = to_array(grid)
-    for i, f in enumerate(filters):
-        Hf, Wf = f.shape
-        X = np.pad(grid == "*", ((0, Hf - 1), (0, Wf - 1)), "constant")
-        Xconv = np.lib.stride_tricks.as_strided(
-            X,
-            shape=(GRID_HEIGHT, GRID_WIDTH, Hf, Wf),
-            strides=X.strides + X.strides
-        )
-        yield np.all(Xconv[:, :, f], axis=-1)
 
 
 def pprint_board(board):
@@ -258,7 +281,7 @@ class Solver:
                 balance %= GRID_WIDTH
             else:
                 frame["S"]["n_placed"] = 0
-                frame["S"]["garbage"] = 0
+                frame["S"]["garbage"] = ""
             frame["S"]["balance"] = balance
             frame["S"]["keyframe"] = (balance == 0)
             prev = frame
@@ -298,28 +321,39 @@ class Solver:
                 curr, start = [], f
 
     def pieces_placed(self, frameiter, piecelist):
-        cpiece = piecelist[0]
         # First set (initial frame)
         first = next(frameiter)
         first["S"]["placed"], first["S"]["actions"] = (), ()
         yield first
+        #
+        cpiece = piecelist[0]
+        prevstart, prevframes = None, None
         for start, frames in frameiter:
+            if prevstart is not None:
+                start, frames = prevstart, prevframes + frames
             target = frames[-1]
             # Compute candidate pieces
-            cands = [cpiece, start["hold"]]
+            cands = [cpiece]
             cands.extend(piecelist[start["S"]["index"] + 1:target["S"]["index"] + 1])
-            cands.remove(target["hold"])
-            if "-" in cands:
-                cands.remove("-")
             # Try all valid placements
             n_placed = sum(f["S"]["n_placed"] for f in frames)
-            assert len(cands) == n_placed + 1 # All but new current piece were placed
             success = False
-            for possibility in permutations(cands):
+            # Perform search with heuristic pruning if too many pieces
+            if n_placed > 3:
+                _log("More than 3 pieces dropped, using intermediate states")
+                heuristic = []
+                for f in frames:
+                    if f["S"]["n_placed"]:
+                        heuristic += [None] * (f["S"]["n_placed"] - 1)
+                        heuristic.append(f["S"]["board"])
+            else:
+                heuristic = [None] * n_placed
+            # Check all possibilities
+            for possibility in all_orderings(n_placed, cands, start["hold"], target["hold"]):
                 *placed, leftover = possibility
-                for actions, result in all_placements(start["S"]["board"], placed):
+                for actions, result in all_placements(start["S"]["board"], placed, states=heuristic):
                     if board_equals(result, target["S"]["board"]):
-                        success = True # SUCCESS!!!
+                        success = True
                         for f in frames:
                             f["S"]["placed"] = tuple(placed[:f["S"]["n_placed"]])
                             f["S"]["actions"] = actions[:f["S"]["n_placed"]]
@@ -329,16 +363,17 @@ class Solver:
                         break
                 if success:
                     cpiece = leftover
+                    if prevstart is not None:
+                        _log("Resolved dropped keyframe")
+                        prevstart, prevframes = None, None
                     break
             if not success:
-                _log("Could not work out piece placements")
-                _log(f"Placed {n_placed} pieces out of {tuple(cands)}")
-                _log("Start")
-                pprint_board(start["S"]["board"])
-                _log("Target")
-                pprint_board(target["S"]["board"])
-                raise Exception()
-            yield from frames
+                if n_placed > 3:
+                    raise TimeoutError("Too many pieces to try all solutions")
+                _log(f"Warning: Failed to solve interval {start['frame']} to {target['frame']}")
+                prevstart, prevframes = start, frames
+            if success:
+                yield from frames
         
     def reconstruct(self, frameiter, piecelist):
         for fn in (self.combine_frames, self.clean_frames, self.mark_good_frames,
@@ -348,172 +383,110 @@ class Solver:
         # Reconstruct events
         last = 0
         board = to_array(["-" * GRID_WIDTH] * GRID_HEIGHT)
-        for frame in frameiter:
-            n = frame["S"]["n_placed"]
-            step = (frame["frame"] - last) / (n + 1)
-            for i, action in enumerate(frame["S"]["actions"]):
-                yield {
-                    "frame": int(np.ceil(last + step * (i + 1))),
-                    "type": "drop",
-                    "event": action,
-                    "board": board
-                }
-                board = apply_placement(board, action.piece, action.x, action.y, action.rotation)
-            if frame["S"]["garbage"]:
-                yield {
-                    "frame": frame["frame"],
-                    "type": "garbage",
-                    "event": Garbage(frame["S"]["garbage"]),
-                    "board": board
-                }
-                board = apply_garbage(board, frame["S"]["garbage"])
-            last = frame["end"]
+        try:
+            for frame in frameiter:
+                n = frame["S"]["n_placed"]
+                step = (frame["frame"] - last) / (n + 1)
+                for i, action in enumerate(frame["S"]["actions"]):
+                    yield {
+                        "frame": int(np.ceil(last + step * (i + 1))),
+                        "type": "drop",
+                        "event": action,
+                        "board": board
+                    }
+                    try:
+                        board = apply_placement(board, action.piece, action.x, action.y, action.rotation)
+                    except AssertionError as e:
+                        print(f"Frame {last}: {action}")
+                        pprint_board(board)
+                        raise e
+                if frame["S"]["keyframe"]:
+                    board = to_array(frame["S"]["board"])
+                # if frame["S"]["garbage"]:
+                #     yield {
+                #         "frame": frame["frame"],
+                #         "type": "garbage",
+                #         "event": Garbage(frame["S"]["garbage"]),
+                #         "board": board
+                #     }
+                #     board = apply_garbage(board, frame["S"]["garbage"])
+                last = frame["end"]
+        except (AssertionError, RuntimeError, TimeoutError) as e:
+            if IGNORE_ERRORS:
+                _log(e)
+                return
+            else:
+                raise e
 
     # Old stuff
 
-    def calc_line_clears(self, frameiter):
-        prev = None
-        for frame in frameiter:
-            frame["lines"] = []
-            if prev is not None:
-                nplaced = pieces_placed(prev, result)
-                tilediff = board_change(prev["grid"], result["grid"])
-                garbdiff = len(garbage_change(prev["grid"], result["grid"])[0])
-                result["nplaced"] = nplaced
-                result["garbage_cleared"] = garbdiff
-                cleared = 4 * nplaced - garbdiff - tilediff
-                if cleared % GRID_WIDTH:
-                    _log(f"Warning: Uneven tile count ({prev['end']}-{result['frame']}): {cleared % GRID_WIDTH}", file=sys.stderr)
-                    # print("\n".join("".join(row) for row in result["grid"]))
-                cleared = int(np.ceil(cleared / GRID_WIDTH))
-                # Figure out which lines were cleared
-                curr, target = board_only(prev["grid"]), board_only(result["grid"])
-                _blank = np.array(["-"] * GRID_WIDTH, dtype=np.object)
-                for row in range(board_height(prev["grid"])):
-                    currentrow = curr[row] if row < len(curr) else _blank
-                    targetrow = target[row - len(result["lines"])] if row - len(result["lines"]) < len(target) else _blank
-                    if np.all(currentrow[currentrow != "-"] == targetrow[currentrow != "-"]):
-                        pass
-                    else:
-                        result["lines"].append(row)
-                if len(result["lines"]) != cleared:
-                    _log(f"Expected {cleared} lines, found {result['lines']}", file=sys.stderr)
-            prev = result
-            yield result
-
-    def calc_piece_placements(self, frameiter):
-        _blank = np.array(["-"] * GRID_WIDTH, dtype=np.object)
-        prev = None
-        for f in self.calc_line_clears(frameiter):
-            result = f.copy()
-            if prev is not None:
-                grid = []
-                # Get garbage
-                for col in garbage_columns(result["grid"]):
-                    grid.append(["-" if i == int(col) else "G" for i in range(GRID_WIDTH)])
-                for col in garbage_columns(prev["grid"])[::-1][:result["garbage_cleared"]]:
-                    grid.append(["*" if i == int(col) else "G" for i in range(GRID_WIDTH)])
-                # Get lines
-                gridA, gridB = board_only(prev["grid"]), board_only(result["grid"])
-                j = 0
-                for i in range(len(gridA)):
-                    if i in result["lines"]:
-                        row = gridA[i]
-                        row[row == "-"] = "*"
-                        grid.append(row)
-                    else:
-                        row = gridB[j] if j < len(gridB) else _blank
-                        row[(gridA[i] == "-") & (row != "-")] = "*"
-                        grid.append(row)
-                        j += 1
-                grid.extend(["-"] * GRID_WIDTH for _ in range(GRID_HEIGHT - len(grid)))
-                grid = to_array(grid[:GRID_HEIGHT][::-1])
-                result["grid"] = grid
-                # Get placed piece(s)
-                result["piece_placed"] = None
-                # TODO: Add support for multiple piece placements?
-                if result["nplaced"] == 1 and (grid == "*").sum() == 4:
-                    for piece, filters in _piece_filters.items():
-                        for rot, matches in enumerate(filter_pass(grid, filters)):
-                            if np.any(matches):
-                                result["piece_placed"] = {
-                                    "piece": piece,
-                                    "rotation": rot,
-                                    "position": np.argwhere(matches)[0]
-                                }
-                                break
-            prev = f
-            yield result
-
-    def calc_events(self, frameiter):
-        prev = None
-        for f in self.calc_piece_placements(frameiter):
-            result = f.copy()
-            # Lines cleared
-            result["cleared"] = len(result["lines"]) + result.get("garbage_cleared", 0)
-            # Combo
-            result["combo"] = 0
-            result["b2b"] = -1
-            if prev is not None:
-                if prev["cleared"]:
-                    result["combo"] = prev["combo"] + 1
-                # T spins
-                result["tspin"] = False
-                if result["piece_placed"] and result["piece_placed"]["piece"] == "T":
-                    offset = ([1, 1], [1, 0], [0, 1], [1, 1])[result["piece_placed"]["rotation"]]
-                    center = result["piece_placed"]["position"] + offset + 1
-                    exgrid = ~np.pad(result["grid"] == "-", 1, "constant")
-                    corners = exgrid[center[0]-1:center[0]+2:2, center[1]-1:center[1]+2:2]
-                    front = (corners[:1], corners[:, 1:], corners[1:], corners[:, :1])[result["piece_placed"]["rotation"]]
-                    if corners.sum() >= 3 and np.all(front):
-                        result["tspin"] = True
-                # Perfect clears
-                result["perfect_clear"] = all((row == "-").sum() in (0, GRID_WIDTH) for row in result["grid"])
-                # Back to back
-                if result["cleared"]:
-                    if result["tspin"] or result["cleared"] == 4:
-                        result["b2b"] = prev["b2b"] + 1
-                    else:
-                        result["b2b"] = -1
+    def compute_attacks(self, events):
+        combo, b2b, spike = 0, 0, 0
+        for ev in events:
+            if ev["type"] == "garbage": continue
+            action = ev["event"]
+            boardA = ev["board"]
+            boardB = apply_placement(boardA, action.piece, action.x, action.y, action.rotation)
+            # Compute base statistics
+            ev["A"] = {}
+            lines = (boardA != "-").sum() + 4 - (boardB != "-").sum()
+            assert lines % GRID_WIDTH == 0
+            lines //= GRID_WIDTH
+            ev["A"]["lines"] = lines
+            ev["A"]["combo"], ev["A"]["b2b"] = 0, 0
+            ev["A"]["tetris"], ev["A"]["tspin"], ev["A"]["mini_tspin"] = False, False, False
+            ev["A"]["perfect_clear"] = lines and np.all(boardB == "-")
+            ev["A"]["garbage"] = len(garbage_change(boardA, boardB)[0])
+            if lines:
+                combo += 1
+                ev["A"]["combo"] = combo - 1
+                ev["A"]["tetris"] = (lines == 4)
+                if action.piece == "T":
+                    cx = action.x + (action.rotation != 1) + 1
+                    cy = action.y + (action.rotation != 2) + 1
+                    exgrid = ~np.pad(boardA == "-", 1, "constant")
+                    corners = exgrid[cy - 1:cy + 2:2, cx - 1:cx + 2:2]
+                    front = (corners[:1], corners[:, 1:], corners[1:], corners[:, :1])[action.rotation]
+                    if corners.sum() >= 3:
+                        if np.all(front):
+                            ev["A"]["tspin"] = True
+                        else:
+                            ev["A"]["mini_tspin"] = True
+                if ev["A"]["tetris"] or ev["A"]["tspin"]: # or ev["A"]["mini_tspin"]:
+                    b2b += 1
+                    ev["A"]["b2b"] = b2b - 1
                 else:
-                    result["b2b"] = prev["b2b"]
+                    b2b = 0
+            else:
+                combo = 0
             # Calculate attack
-            result["atk"] = defaultdict(int)
-            if 1 <= result["cleared"] <= 4:
-                result["atk"]["base"] = ([0, 2, 4, 6] if result["tspin"] else [0, 0, 1, 2, 4])[result["cleared"]]
-                if result["atk"]["base"]:
-                    result["atk"]["combo"] = result["combo"] * result["atk"]["base"] // 4
+            ev["A"]["attack"] = defaultdict(int)
+            if ev["A"]["lines"]:
+                ev["A"]["attack"]["base"] = ([0, 2, 4, 6] if ev["A"]["tspin"] else [0, 0, 1, 2, 4])[ev["A"]["lines"]]
+                if ev["A"]["attack"]["base"]:
+                    ev["A"]["attack"]["combo"] = ev["A"]["combo"] * ev["A"]["attack"]["base"] // 4
                 else:
                     # Singles have different calculations
-                    result["atk"]["combo"] = ([0] * 2 + [1] * 4 + [2] * 10 + [3] * 10)[result["combo"]]
-                result["atk"]["b2b"] = (result["b2b"] >= 1) + (result["b2b"] >= 3) + (result["b2b"] >= 8)
-                result["atk"]["pc"] = 10 * result["perfect_clear"]
-            result["attack"] = sum(result["atk"].values())
-            result["attack_combo"] = 0
-            if prev is not None and result["attack"]:
-                result["attack_combo"] = result["attack"] + prev["attack_combo"]
-            prev = result
-            yield result
-
-    def find_interesting_parts(self, framelist):
-        # TODO: Work in progress
-        goodframes = set()
-        for i in range(7, len(framelist)):
-            if framelist[i]["attack_combo"] >= 10 and framelist[i]["combo"] > 1:
-                for ii in range(i - 5, i + 1):
-                    goodframes.add(ii)
-        for i in sorted(goodframes):
-            self.log.append(framelist[i]["frame"])
-
+                    ev["A"]["attack"]["combo"] = ([0] * 2 + [1] * 4 + [2] * 10 + [3] * 10)[ev["A"]["combo"]]
+                ev["A"]["attack"]["b2b"] = (ev["A"]["b2b"] >= 1) + (ev["A"]["b2b"] >= 3) + (ev["A"]["b2b"] >= 8)
+                ev["A"]["attack"]["pc"] = 10 * ev["A"]["perfect_clear"]
+            ev["A"]["total_attack"] = sum(ev["A"]["attack"].values())
+            #
+            if ev["A"]["total_attack"]:
+                spike += ev["A"]["total_attack"]
+            else:
+                spike = 0
+            ev["A"]["spike"] = spike
+            yield ev
 
 
 class SolverStats:
     @staticmethod
-    def compute_placement_stats(framelist, out):
-        for f in framelist:
-            if "piece_placed" in f and f["piece_placed"] is not None:
-                out.setdefault(f["piece_placed"]["piece"], {}).setdefault(f["piece_placed"]["rotation"], 0)
-                out[f["piece_placed"]["piece"]][f["piece_placed"]["rotation"]] += 1
+    def compute_placement_stats(events, out):
+        for ev in events:
+            if ev["type"] == "garbage": continue
+            action = ev["event"]
+            out.setdefault(action.piece, defaultdict(int))[action.rotation] += 1
 
     @staticmethod
     def visualize_placements(stats):
@@ -522,25 +495,26 @@ class SolverStats:
         for piece in nrots:
             placements = stats.get(piece, {})
             for rot in range(nrots[piece]):
-                pstrs = ["".join([" ", piece][x] for x in row) for row in _piece_filters[piece][rot]]
-                pstrs[0] = f"{pstrs[0]: <4}  {placements.get(rot, 0): >3}"
+                pstrs = ["".join([" ", piece][x] for x in row) for row in piece_filters[piece][rot]]
+                pstrs[0] = f"{pstrs[0]: <4}  {placements[rot]: >3}"
                 res.append("\n".join(pstrs))
         return "\n\n".join(res)
 
     @staticmethod
-    def tspin_overhangs(framelist, out):
-        for f in framelist:
+    def tspin_overhangs(events, out):
+        for ev in events:
+            if ev["type"] == "garbage": continue
             # Only point down T spins
-            if f["cleared"] > 0 and f["tspin"] and f["piece_placed"]["rotation"] == 2:
-                ca, cb = f["piece_placed"]["position"] + [-1, 0], f["piece_placed"]["position"] + [-1, 2]
-                out[f["grid"][ca[0]][ca[1]]] += 1
-                out[f["grid"][cb[0]][cb[1]]] += 1
+            if ev["A"]["lines"] and ev["A"]["tspin"] and ev["event"].rotation == 2:
+                lx, rx, y = ev["event"].x, ev["event"].x + 2, ev["event"].y - 1
+                out[ev["board"][y][lx]] += 1
+                out[ev["board"][y][rx]] += 1
 
     @staticmethod
-    def tspin_columns(framelist, out):
-        for f in framelist:
+    def tspin_columns(events, out):
+        for ev in events:
+            if ev["type"] == "garbage": continue
             # Only point down T spins
-            if f["cleared"] > 0 and f["tspin"] and f["piece_placed"]["rotation"] == 2:
-                col = f["piece_placed"]["position"][1] + 1
+            if ev["A"]["lines"] and ev["A"]["tspin"] and ev["event"].rotation == 2:
+                col = ev["event"].x + 1
                 out[col] += 1
-                

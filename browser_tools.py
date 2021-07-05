@@ -12,43 +12,13 @@ import json
 import sys
 import os
 
-JS_DROP_FILE = """
-    var target = arguments[0],
-        offsetX = arguments[1],
-        offsetY = arguments[2],
-        document = target.ownerDocument || document,
-        window = document.defaultView || window;
-
-    var input = document.createElement('INPUT');
-    input.type = 'file';
-    input.onchange = function () {
-      var rect = target.getBoundingClientRect(),
-          x = rect.left + (offsetX || (rect.width >> 1)),
-          y = rect.top + (offsetY || (rect.height >> 1)),
-          dataTransfer = { files: this.files };
-
-      ['dragenter', 'dragover', 'drop'].forEach(function (name) {
-        var evt = document.createEvent('MouseEvent');
-        evt.initMouseEvent(name, !0, !0, window, 0, 0, 0, x, y, !1, !1, !1, !1, 0, null);
-        evt.dataTransfer = dataTransfer;
-        target.dispatchEvent(evt);
-      });
-
-      setTimeout(function () { document.body.removeChild(input); }, 25);
-    };
-    document.body.appendChild(input);
-    return input;
-"""
 
 class Browser:
-
-    
-    def __init__(self, *, speedup=2, manual_config=False, verbose=False):
+    def __init__(self, *, speedup, verbose=False):
         self._open = False
         self.driver = None
         assert speedup in (1, 2, 5, 10)
         self.speedup = speedup
-        self.manual_config = manual_config
         self.verbose = verbose
 
     def _log(self, *args, **kwargs):
@@ -88,11 +58,7 @@ class Browser:
             self.wait_action(".notification", "click", timeout=2)
         self.wait_action(".patchnotes .oob_button.pri", "click", timeout=10)
         # Change config settings
-        if self.manual_config:
-            self._log("Drag 'config.ttc' into the browser...")
-            self.wait_action("#dialogs div.oob_button.sec", "click", timeout=1 * 60)
-        else:
-            self._log("Setting correct configuration...")
+        self._log("Setting correct configuration...")
 
         self.set_config()
         # Refresh and re-login
@@ -132,9 +98,11 @@ class Browser:
         return success
     
     def drag_and_drop_file(self, drop_target, path):
+        with open("scripts/drop.js") as f:
+            script = f.read()
         path = os.path.abspath(path)
         driver = drop_target.parent
-        file_input = driver.execute_script(JS_DROP_FILE, drop_target, 0, 0)
+        file_input = driver.execute_script(script, drop_target, 0, 0)
         file_input.send_keys(path)
     
     def set_config(self):

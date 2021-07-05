@@ -1,7 +1,29 @@
-# TODO: Work in progress
-
 import numpy as np
 import cv2
+from solver_tools import to_array, piece_filters
+
+
+GRID_HEIGHT, GRID_WIDTH = 22, 10
+VERBOSE = False
+VIDEO_SCALE = 1
+
+def _log(*args, **kwargs):
+    if VERBOSE:
+        print("[Renderer] ", *args, **kwargs)
+
+class RendererConfig:
+    @staticmethod
+    def set_verbose(verbose=True):
+        global VERBOSE
+        VERBOSE = verbose
+        return RendererConfig
+
+    @staticmethod
+    def set_scale(scale):
+        global VIDEO_SCALE
+        VIDEO_SCALE = np.clip(int(scale), 1, None)
+        return RendererConfig
+
 
 piece_colors = {
     "S": [0, 240, 0],
@@ -15,20 +37,6 @@ piece_colors = {
     "-": [0, 0, 0],
     "*": [255, 255, 255]
 }
-piece_shapes = {
-    "S": [[0, 1, 1, 0], [1, 1, 0, 0]],
-    "Z": [[1, 1, 0, 0], [0, 1, 1, 0]],
-    "T": [[0, 1, 0, 0], [1, 1, 1, 0]],
-    "I": [[0, 0, 0, 0], [1, 1, 1, 1]],
-    "L": [[0, 0, 1, 0], [1, 1, 1, 0]],
-    "J": [[1, 0, 0, 0], [1, 1, 1, 0]],
-    "O": [[0, 1, 1, 0], [0, 1, 1, 0]],
-    "-": [[0, 0, 0, 0], [0, 0, 0, 0]]
-}
-standard_size = {
-    (22, 18): (18 * 16, 22 * 16),
-    (22, 18*2 + 4): ((18*2 + 4) * 16, 22 * 16)
-}
 
 def create_image_grid(grid, out=None):
     H, W = len(grid), len(grid[0])
@@ -41,59 +49,43 @@ def create_image_grid(grid, out=None):
             out[i, j] = piece_colors[grid[i][j]][::-1]
     return out
 
-def create_image_next(pieces, out=None):
-    if out is None:
-        out = np.zeros((20, 4, 3), dtype=np.uint8)
-    assert out.shape == (20, 4, 3)
-    # Draw next queue
-    for i, p in enumerate(pieces):
-        out[4*i + 1:4*i + 3] = np.reshape(piece_shapes[p], (2, 4, 1)) * piece_colors[p][::-1]
-    return out
 
-def create_slideshow(data, pieces, interval=30, interpolation=False):
-    data = [{**f, "frame": i * interval} for i, f in enumerate(data)]
-    return create_video(data, pieces, interpolation=interpolation)
+class ReplayVideo:
+    def __init__(self):
+        self.frame = 0
+        self.video = []
+        self.reset()
 
-def create_video(data, pieces, interpolation=True, length=None):
-    N, H, W = data[-1]["frame"], len(data[0]["grid"]), len(data[0]["grid"][0])
-    if length is None:
-        length = N
-    video = np.zeros((max(N, length) + 1, H, W + 8, 3), dtype=np.uint8)
-    # Render main grid
-    gridregion = video[:, :, 1:W + 1]
-    lastframe = 0
-    interpolated, maxdrop = 0, 0
-    for d in data:
-        frame, grid = d["frame"], d["grid"]
-        create_image_grid(grid, out=gridregion[frame])
-        for f in range(lastframe + 1, frame):
-            t = (f - lastframe) / (frame - lastframe) if interpolation else 0
-            gridregion[f] = (1 - t) * gridregion[lastframe] + t * gridregion[frame]
-            interpolated += 1
-        maxdrop = max(maxdrop, frame - lastframe - 1)
-        lastframe = frame
-    # print(f"Interpolated {interpolated} / {N} frames")
-    # print(f"Dropped at most {maxdrop} frames")
-    video[:, :2] //= 3
-    # Divider
-    video[:, :, [0, W + 1]] = 48
-    # Render next pieces
-    for i in range(N + 1):
-        create_image_next(pieces[i], out=video[i, 1:-1, W + 3:W + 7])
-    # Adjust to length
-    if length < N:
-        video = video[:length + 1]
-    if length > N:
-        video[N:] = video[N]
-    return video
+    def reset(self):
+        self.frame = 0
+        self.video.append(np.zeros([GRID_HEIGHT, GRID_WIDTH], dtype=np.uint8))
 
-def side_by_side(videos):
-    video = videos[0]
-    bar = np.zeros(video.shape[:2] + (4, 3), dtype=video.dtype)
-    for v in videos[1:]:
-        assert v.shape[:2] == video.shape[:2]
-        video = np.concatenate([video, bar, v], axis=2)
-    return video
+    def extend_by(self, n_frames):
+        self.video += [self.video[-1]] * n_frames
+
+    def extend_to(self, frame):
+        self.video += [self.video[-1]] * (frame - self.frame)
+
+    def render(self, *events):
+        for ev in events:
+            if ev["type"] == "garbage": continue
+            action = ev["event"]
+            self.extend_to(ev["frame"] - 1)
+            # Draw new frame
+            grid = to_array(ev["board"])
+            ftr = piece_filters[action.piece][action.rotation]
+            grid[action.y:action.y + ftr.shape[0], action.x:action.x + ftr.shape[1]][ftr] = "*"
+            self.video.append(create_image_grid(grid))
+            self.frame = ev["frame"]
+
+    def save(self, filename, fps=60):
+        size = (GRID_WIDTH * VIDEO_SCALE, GRID_HEIGHT * VIDEO_SCALE)
+        out = cv2.VideoWriter(filename, cv2.VideoWriter_fourcc(*"mp4v"), fps, size)
+        for frame in self.video:
+            out.write(cv2.resize(frame, size, interpolation=cv2.INTER_NEAREST))
+        out.release()
+        _log(f"Saved {len(self.video)} frame(s) to '{filename}'")
+
 
 def display_image(image, title="Replay"):
     cv2.imshow(title, cv2.resize(image, standard_size[image.shape[:2]], interpolation=cv2.INTER_NEAREST))

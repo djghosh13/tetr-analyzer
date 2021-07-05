@@ -2,7 +2,7 @@ var maxFrames = parseInt("[MAX_FRAMES]");
 var side = parseInt("[PLAYER_SIDE]");
 var tag = "[DATA_TAG]";
 
-const frameOffsetX = [110, 397][side], frameOffsetY = 300;
+const frameOffsetX = [110, 397, 243][side], frameOffsetY = 300;
 const frameWidth = 68, frameHeight = 41;
 
 var imageData = new Uint8Array(4 * frameWidth * frameHeight);
