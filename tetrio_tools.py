@@ -71,10 +71,9 @@ def get_random_game(browser: Browser, rng, **kwargs):
     opponent = [name for name in players if name != player['username']][0]
     print(f"\tversus opponent: '{opponent}'")
     replayid = get_replayid(game)
-    return get_full_game(browser, replayid, **kwargs)
+    return get_online_game(browser, replayid, **kwargs)
 
-
-def get_full_game(browser: Browser, replayid: AnyStr, maxrounds=15, use_cache=True):
+def get_online_game(browser: Browser, replayid: AnyStr, maxrounds=15, use_cache=True):
     print(f"Replay ID:\tr:{replayid}")
     if use_cache:
         try:
@@ -91,7 +90,6 @@ def get_full_game(browser: Browser, replayid: AnyStr, maxrounds=15, use_cache=Tr
         print("Saved replay to cache")
     return replays, data
 
-
 def get_custom_game(browser: Browser, filename: AnyStr, maxrounds=15, use_cache=True):
     sname = filename.split("\\")[-1].split("/")[-1].replace(".ttrm", "")
     print(f"Replay Name:\t{sname}")
@@ -106,6 +104,31 @@ def get_custom_game(browser: Browser, filename: AnyStr, maxrounds=15, use_cache=
     data = list(browser.get(filename, range(min(n_games(replays), maxrounds)), framecounts))
     os.makedirs("cache", exist_ok=True)
     with open(f"cache/replay_{sname}.pkl", "wb") as f:
+        pickle.dump(data, f)
+        print("Saved replay to cache")
+    return replays, data
+
+# Singleplayer capture
+
+def n_frames_sp(replaydata: Dict):
+    return replaydata["game"]["data"]["frames"]
+
+def get_playername_sp(replaydata: Dict):
+    return replaydata["game"]["user"]["username"]
+
+def get_online_game_sp(browser: Browser, replayid: AnyStr, use_cache=True):
+    print(f"Replay ID:\tr:{replayid}")
+    if use_cache:
+        try:
+            with open(f"cache/replay_sp_{replayid}.pkl", "rb") as f:
+                return download_replay(replayid), pickle.load(f)
+        except FileNotFoundError:
+            print("Replay not cached, capturing replay")
+    replays = download_replay(replayid)
+    framecount = n_frames_sp(replays) - 1
+    data = browser.get_sp(replayid, framecount)
+    os.makedirs("cache", exist_ok=True)
+    with open(f"cache/replay_sp_{replayid}.pkl", "wb") as f:
         pickle.dump(data, f)
         print("Saved replay to cache")
     return replays, data

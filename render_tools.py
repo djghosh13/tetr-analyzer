@@ -35,7 +35,15 @@ piece_colors = {
     "O": [239, 240, 0],
     "G": [120, 120, 120],
     "-": [0, 0, 0],
-    "*": [255, 255, 255]
+
+    "*": [255, 255, 255],
+    "*S": [127, 255, 127],
+    "*Z": [255, 127, 127],
+    "*T": [210, 127, 255],
+    "*I": [127, 255, 255],
+    "*L": [255, 210, 127],
+    "*J": [127, 127, 255],
+    "*O": [255, 255, 127],
 }
 
 def create_image_grid(grid, out=None):
@@ -74,7 +82,7 @@ class ReplayVideo:
             # Draw new frame
             grid = to_array(ev["board"])
             ftr = piece_filters[action.piece][action.rotation]
-            grid[action.y:action.y + ftr.shape[0], action.x:action.x + ftr.shape[1]][ftr] = "*"
+            grid[action.y:action.y + ftr.shape[0], action.x:action.x + ftr.shape[1]][ftr] = "*" + action.piece
             self.video.append(create_image_grid(grid))
             self.frame = ev["frame"]
 

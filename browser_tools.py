@@ -66,6 +66,10 @@ class Browser:
         self.driver.refresh()
         time.sleep(0.25)
         self.wait_action("#return_button", "click")
+        # Hide notifications
+        self.driver.execute_script(
+            "document.getElementById('notifications').style.display = 'none';"
+        )
         self._open = True
 
     def finish(self):
@@ -112,7 +116,7 @@ class Browser:
 
     def open_replay(self, replayid=None):
         self.wait_action("#sig_channel", "click")
-        if not replayid.endswith(".ttrm"):
+        if ".ttr" not in replayid:
             self._log(f"Opening replay: r:{replayid}")
             self.wait_action("#tetra_find", "clear")
             self.wait_action("#tetra_find", "send_keys", "r:" + replayid)
@@ -173,4 +177,37 @@ class Browser:
             data = data + (sidedata,)
         return data
 
+    # Singleplayer recording
 
+    def get_sp(self, replayid, framecount):
+        self.init()
+        self.open_replay(replayid)
+        self._log(f"Recording singleplayer replay")
+        self.capture_replay_sp(framecount)
+        data = self.all_replay_data_sp()
+        self.close_replay()
+        return data
+
+    def capture_replay_sp(self, framecount):
+        self.wait_action("#watchreplay_results", "click")
+        self.wait_action(f"#replaytools_button_{self.speedup}x", "click")
+        self.wait_action("#replaytools_button_playpause", "click")
+        self.wait_action("#replaytools_button_backward_large", "click")
+        time.sleep(5)
+        for filename, tag in [
+                ("scripts/capture_grid.js", "grid"),
+                ("scripts/capture_next.js", "next"),
+                ("scripts/capture_hold.js", "hold")
+            ]:
+            self.run_script(filename, {
+                "[MAX_FRAMES]": framecount,
+                "[PLAYER_SIDE]": 2, # Special side index for singleplayer
+                "[DATA_TAG]": f"{tag}-sp"
+            })
+        self.wait_action("#replaytools_button_playpause", "click")
+
+    def all_replay_data_sp(self):
+        data = {}
+        for tag in ["grid", "next", "hold"]:
+            data[tag] = self.get_replay_data(f"{tag}-sp")
+        return data

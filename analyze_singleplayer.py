@@ -3,7 +3,7 @@ from collections import defaultdict
 import argparse
 
 from browser_tools import Browser
-from tetrio_tools import get_online_game, get_random_game, get_custom_game, get_playername
+from tetrio_tools import get_online_game_sp, get_playername_sp
 from solver_tools import Solver, SolverStats, SolverConfig
 from render_tools import ReplayVideo, RendererConfig
 # import render_tools
@@ -30,13 +30,14 @@ def main(args):
     fulldata = defaultdict(list)
     for target in args.targets:
         if target.startswith("?"):
-            info, data = get_random_game(browser, rng, use_cache=not args.no_cache)
+            # info, data = get_random_game(browser, rng, use_cache=not args.no_cache)
+            raise NotImplementedError("Random singleplayer games not yet supported")
         elif "r:" in target:
-            info, data = get_online_game(browser, target.split("r:")[-1], use_cache=not args.no_cache)
+            info, data = get_online_game_sp(browser, target.split("r:")[-1], use_cache=not args.no_cache)
         else:
-            info, data = get_custom_game(browser, target, use_cache=not args.no_cache)
-        for player in (0, 1):
-            fulldata[get_playername(info, player)].extend(rdata[player] for rdata in data)
+            # info, data = get_custom_game(browser, target, use_cache=not args.no_cache)
+            raise NotImplementedError("Uploaded singleplayer games not yet supported")
+        fulldata[get_playername_sp(info)].append(data)
     browser.finish()
     print("Retrieved all replay data")
 
