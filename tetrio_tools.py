@@ -132,3 +132,16 @@ def get_online_game_sp(browser: Browser, replayid: AnyStr, use_cache=True):
         pickle.dump(data, f)
         print("Saved replay to cache")
     return replays, data
+
+# Other API calls
+
+def download_playerinfo(username: AnyStr):
+    url = f"https://ch.tetr.io/api/users/{username}"
+    r = requests.get(url)
+    return r.json()["data"]["user"]
+
+def download_records(userid: AnyStr, recordtype: AnyStr):
+    # recordtype can be "40l" or "blitz"
+    url = f"https://ch.tetr.io/api/streams/{recordtype}_userbest_{userid}"
+    r = requests.get(url)
+    return r.json()["data"]["records"]

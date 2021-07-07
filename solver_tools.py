@@ -296,7 +296,9 @@ class Solver:
                     pieces = pieces + nextps[k:]
                     break
         firstpiece = list(set("TSZIOLJ") - set(pieces[:6]))[0]
-        return firstpiece + pieces
+        pieces = firstpiece + pieces
+        assert all(len(set(pieces[i:i + 7])) == len(pieces[i:i + 7]) for i in range(0, len(pieces), 7)), "Could not retrieve correct piecelist"
+        return pieces
 
     def piece_index(self, frameiter):
         prev, idx = {}, 0
@@ -518,3 +520,15 @@ class SolverStats:
             if ev["A"]["lines"] and ev["A"]["tspin"] and ev["event"].rotation == 2:
                 col = ev["event"].x + 1
                 out[col] += 1
+
+    @staticmethod
+    def soft_drops(events, out):
+        for ev in events:
+            if ev["type"] == "garbage": continue
+            # Count non-hard-droppable pieces
+            fltr = piece_filters[ev["event"].piece][ev["event"].rotation]
+            hasoverhang = False
+            for dx in range(fltr.shape[1]):
+                dy = np.argmax(fltr[:, dx])
+                hasoverhang = hasoverhang or np.any(ev["board"][:ev["event"].y + dy, ev["event"].x + dx] != "-")
+            out[ev["event"].piece] += hasoverhang

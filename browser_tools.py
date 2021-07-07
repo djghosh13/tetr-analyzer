@@ -191,9 +191,7 @@ class Browser:
     def capture_replay_sp(self, framecount):
         self.wait_action("#watchreplay_results", "click")
         self.wait_action(f"#replaytools_button_{self.speedup}x", "click")
-        self.wait_action("#replaytools_button_playpause", "click")
-        self.wait_action("#replaytools_button_backward_large", "click")
-        time.sleep(5)
+        # Don't pause and wait for countdown, causes capture problems
         for filename, tag in [
                 ("scripts/capture_grid.js", "grid"),
                 ("scripts/capture_next.js", "next"),
@@ -204,7 +202,6 @@ class Browser:
                 "[PLAYER_SIDE]": 2, # Special side index for singleplayer
                 "[DATA_TAG]": f"{tag}-sp"
             })
-        self.wait_action("#replaytools_button_playpause", "click")
 
     def all_replay_data_sp(self):
         data = {}

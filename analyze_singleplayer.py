@@ -85,8 +85,7 @@ def main(args):
             "Max Spike": 0,
             **{k:0 for k in metrics}
         }
-        overhangs = defaultdict(int)
-        placements = defaultdict(int)
+        extrainfo = defaultdict(lambda: defaultdict(int))
         for rnum, rounddata in enumerate(data):
             filtered = list(frame for frame in zipd(rounddata) if frame["next"]["value"] != "-----")
             assert all(f["grid"]["frame"] == f["next"]["frame"] == f["hold"]["frame"] for f in filtered)
@@ -99,8 +98,10 @@ def main(args):
             # events = events[7 * 3:]
             # if not events: continue
             # print(sum(ev["A"]["total_attack"] for ev in events))
-            SolverStats.tspin_overhangs(events, out=overhangs)
-            SolverStats.tspin_columns(events, out=placements)
+            SolverStats.tspin_overhangs(events, out=extrainfo["overhangs"])
+            SolverStats.tspin_columns(events, out=extrainfo["tcolumns"])
+            SolverStats.compute_placement_stats(events, out=extrainfo["placements"])
+            SolverStats.soft_drops(events, out=extrainfo["softdrops"])
             # Update stats
             stats["Pieces"] += len(events)
             stats["_frames"] += filtered[-1]["grid"]["frame"] # - events[0]["frame"]
@@ -132,9 +133,14 @@ def main(args):
                 print(f"{k}: {stats[k]}")
         print("T Spin Overhangs")
         print(" ".join(f"{k: >3}" for k in "SZTLJIO"))
-        print(" ".join(f"{overhangs[k]: >3}" for k in "SZTLJIO"))
+        print(" ".join(f"{extrainfo['overhangs'][k]: >3}" for k in "SZTLJIO"))
         print("T Spin Columns")
-        print("  ".join(f"{placements[k]}" for k in range(10)))
+        print("  ".join(f"{extrainfo['tcolumns'][k]}" for k in range(10)))
+        print("Piece Placements")
+        print(SolverStats.visualize_placements(extrainfo["placements"]))
+        print("Soft Drops")
+        print(" ".join(f"{k: >3}" for k in "SZTLJIO"))
+        print(" ".join(f"{extrainfo['softdrops'][k]: >3}" for k in "SZTLJIO"))
         print()
 
 
