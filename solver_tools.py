@@ -214,6 +214,7 @@ def all_placements(board, pieces, states):
             ftr = piece_filters[piece][rot]
             Hf, Wf = ftr.shape
             for y in range(GRID_HEIGHT - Hf, -1, -1):
+                if y < GRID_HEIGHT - Hf and not filled[y + Hf].any(): continue
                 for x in range(GRID_WIDTH - Wf + 1):
                     # Check for validity and iterate
                     if filled[y:y + Hf, x:x + Wf][ftr].any(): continue
