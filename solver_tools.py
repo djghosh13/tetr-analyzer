@@ -134,6 +134,9 @@ def board_difference(gridA, gridB):
     boardA, boardB = gridA[garbdiff:], gridB[:len(gridB) - garbdiff]
     return np.sum(boardA != boardB)
 
+def lines_cleared(gridA, gridB, npieces):
+    return (np.sum(gridA != "-") + 4 * npieces - np.sum(gridB != "-")) // GRID_WIDTH
+
 # Piece analysis
 
 Action = namedtuple("Action", ["piece", "x", "y", "rotation"])
@@ -226,6 +229,26 @@ def all_placements(board, pieces, states):
                             continue
                     for actions, result in all_placements(newboard, rest, states=states[1:]):
                         yield (Action(piece, x, y, rot),) + actions, result
+
+def harddrop_placements(board, pieces, states="unused"):
+    if not pieces:
+        yield (), board
+    else:
+        piece, *rest = pieces
+        filled = (board != "-")
+        heights = (GRID_HEIGHT - np.argmax(filled, axis=0)) * np.any(filled, axis=0)
+        rotations = [4, 2, 2, 2, 1, 4, 4]["TSZIOLJ".index(piece)]
+        for rot in range(rotations):
+            ftr = piece_filters[piece][rot]
+            Hf, Wf = ftr.shape
+            bases = np.argmax(ftr[::-1], axis=0)
+            for x in range(GRID_WIDTH - Wf + 1):
+                y = GRID_HEIGHT - Hf - np.max(heights[x:x + Wf] - bases)
+                # Check for validity and iterate
+                if y < 0: continue
+                newboard = apply_placement(board, piece, x, y, rot)
+                for actions, result in harddrop_placements(newboard, rest):
+                    yield (Action(piece, x, y, rot),) + actions, result
 
 
 def pprint_board(board):

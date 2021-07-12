@@ -1,10 +1,13 @@
+from typing import AnyStr, Generator
 import functools
-from render_tools import RendererConfig, ReplayVideo
 import numpy as np
 import time
+from tqdm import tqdm
 
 import solver_tools as st
-from solver_tools import GRID_HEIGHT, GRID_WIDTH
+from solver_tools import GRID_HEIGHT, GRID_WIDTH, apply_placement
+from render_tools import RendererConfig, ReplayVideo
+from ai_routines import BasicAI, FourWideAI, QuadAI, TetrisAI
 
 
 def timer(func):
@@ -21,81 +24,39 @@ def timer(func):
 
 BAG = list(st.piece_filters.keys())
 
-def nextpiece_generator(seed: int = None):
+def nextpiece_generator(seed: int = None, allow_szo_start=True):
     rng: np.random.Generator = np.random.default_rng(seed)
+    bag = rng.permutation(BAG)
+    while not allow_szo_start and bag[0] in "SZO":
+        bag = rng.permutation(BAG)
+    yield from bag
     while True:
         bag = rng.permutation(BAG)
         yield from bag
 
 
-def harddrop_placements(board, pieces):
-    if not pieces:
-        yield (), board
-    else:
-        piece, *rest = pieces
-        filled = (board != "-")
-        heights = (GRID_HEIGHT - np.argmax(filled, axis=0)) * np.any(filled, axis=0)
-        rotations = [4, 2, 2, 2, 1, 4, 4]["TSZIOLJ".index(piece)]
-        for rot in range(rotations):
-            ftr = st.piece_filters[piece][rot]
-            Hf, Wf = ftr.shape
-            bases = np.argmax(ftr[::-1], axis=0)
-            for x in range(GRID_WIDTH - Wf + 1):
-                y = GRID_HEIGHT - Hf - np.max(heights[x:x + Wf] - bases)
-                # Check for validity and iterate
-                if y < 0: continue
-                newboard = st.apply_placement(board, piece, x, y, rot)
-                for actions, result in harddrop_placements(newboard, rest):
-                    yield (st.Action(piece, x, y, rot),) + actions, result
-                    
-
-def lines_cleared(boardA: np.ndarray, boardB: np.ndarray, npieces: int):
-    return (np.sum(boardA != "-") + 4 * npieces - np.sum(boardB != "-")) // st.GRID_WIDTH
-
-def fitness_heuristic(board, lines):
-    # From https://codemyroad.wordpress.com/2013/04/14/tetris-ai-the-near-perfect-player/
-    HEIGHT_FACTOR, HOLES_FACTOR, BUMPINESS_FACTOR, LINES_FACTOR = -0.510, -0.357, -0.184, 0.761
-    # HEIGHT_FACTOR, HOLES_FACTOR, BUMPINESS_FACTOR, LINES_FACTOR = -2.510, -10.0, -0.184, 10.0
-    # Aggregate height (above threshold)
-    heights = GRID_HEIGHT - np.argmax(board != "-", axis=0)
-    heights *= np.any(board != "-", axis=0)
-    aggheight = np.clip(heights - 0, 0, None).sum()
-    # Number of holes
-    nholes = heights.sum() - np.sum(board != "-")
-    # Bumpiness
-    bumpiness = np.abs(heights[1:] - heights[:-1])
-    bumpiness = bumpiness.sum() - np.sum(sorted(bumpiness)[-1:])
-    # Weighted combination of factors
-    return HEIGHT_FACTOR * aggheight + HOLES_FACTOR * nholes + BUMPINESS_FACTOR * bumpiness + LINES_FACTOR * lines
-
-
-def play_game(board, generator):
-    LOOKAHEAD = 2
+def play_game(agent: TetrisAI, board: np.ndarray, generator: Generator[AnyStr, None, None]):
     queue = []
-    for piece in generator:
+    agent.reset()
+    for piece in tqdm(generator):
         queue.append(piece)
-        if len(queue) < LOOKAHEAD: continue
-        bestactions, bestboard, bestfitness = None, None, -np.inf
-        hasactions = False
-        for actions, result in harddrop_placements(board, queue):
-            hasactions = True
-            fitness = fitness_heuristic(result, lines_cleared(board, result, LOOKAHEAD))
-            if fitness > bestfitness:
-                bestactions, bestboard, bestfitness = actions, result, fitness
-        if not hasactions:
-            print("No actions found")
-        board = bestboard
-        yield from bestactions
-        queue.clear()
+        action = agent.next_action(board, queue)
+        if action is not None:
+            newboard = apply_placement(board, action.piece, action.x, action.y, action.rotation)
+            lines = st.lines_cleared(board, newboard, 1)
+            board = newboard
+            yield action
+            queue.pop(0 if action.piece == queue[0] else 1)
+            agent.step(board, lines)
 
 
-def nline_race(n, seed=None, fpp=60):
+def nline_race(agent, n, seed=None, fpp=60):
     generator = nextpiece_generator(seed)
     board = np.empty([GRID_HEIGHT, GRID_WIDTH], dtype=np.object)
     board[...] = "-"
     lines = 0
     video = ReplayVideo()
-    for idx, action in enumerate(play_game(board, generator), 1):
+    for idx, action in enumerate(play_game(agent, board, generator), 1):
         video.render({
             "frame": idx * fpp,
             "type": "drop",
@@ -111,7 +72,7 @@ def nline_race(n, seed=None, fpp=60):
     return video
 
 
-def cheese_race(n, seed=None, fpp=60):
+def cheese_race(agent, n, seed=None, fpp=60):
     generator = nextpiece_generator(seed)
     board = np.empty([GRID_HEIGHT, GRID_WIDTH], dtype=np.object)
     board[...] = "-"
@@ -124,7 +85,7 @@ def cheese_race(n, seed=None, fpp=60):
         column = (column + rng.integers(1, GRID_WIDTH)) % GRID_WIDTH
     # Play
     video = ReplayVideo()
-    for idx, action in enumerate(play_game(board, generator), 1):
+    for idx, action in enumerate(play_game(agent, board, generator), 1):
         video.render({
             "frame": idx * fpp,
             "type": "drop",
@@ -139,7 +100,32 @@ def cheese_race(n, seed=None, fpp=60):
     return video
 
 
+def marathon(agent, n, seed=None, fpp=60):
+    generator = nextpiece_generator(seed)
+    board = np.empty([GRID_HEIGHT, GRID_WIDTH], dtype=np.object)
+    board[...] = "-"
+    video = ReplayVideo()
+    for idx, action in enumerate(play_game(agent, board, generator), 1):
+        video.render({
+            "frame": idx * fpp,
+            "type": "drop",
+            "event": action,
+            "board": board
+        })
+        try:
+            board = st.apply_placement(board, action.piece, action.x, action.y, action.rotation)
+        except IndexError:
+            break
+        if idx >= n:
+            break
+    video.extend_by(2 * fpp)
+    return video
+
+
 if __name__ == "__main__":
     RendererConfig.set_scale(20)
-    timer(nline_race)(40, fpp=12).save("videos/mygame.mp4")
-    # timer(cheese_race)(10, fpp=12).save("videos/mygame.mp4")
+
+    agent = FourWideAI()
+    timer(nline_race)(agent, 40, seed=42, fpp=12).save("videos/mygame.mp4")
+    # timer(cheese_race)(agent, 18, seed=42, fpp=12).save("videos/mygame.mp4")
+    # timer(marathon)(agent, 140, seed=42, fpp=12).save("videos/mygame.mp4")
